@@ -117,13 +117,13 @@ async def get_bot_username(context: ContextTypes.DEFAULT_TYPE) -> str:
     """Helper to get bot username dynamically, with caching."""
     global cached_bot_username
     if cached_bot_username:
-        return cached_bot_username
+        return str(cached_bot_username).lstrip('@').strip()
     if config.BOT_USERNAME:
-        cached_bot_username = config.BOT_USERNAME
+        cached_bot_username = str(config.BOT_USERNAME).lstrip('@').strip()
         return cached_bot_username
     try:
         bot_info = await context.bot.get_me()
-        cached_bot_username = bot_info.username
+        cached_bot_username = str(bot_info.username).lstrip('@').strip()
         return cached_bot_username
     except Exception as e:
         logger.error(f"Failed to fetch bot username dynamically: {e}")
@@ -579,10 +579,14 @@ async def channel_post_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         logger.error(f"Failed to save lecture info to database for message {message_id}")
         return
         
+    # Fetch bot username for direct deep link
+    bot_username = await get_bot_username(context)
+    bot_link = f"https://t.me/{bot_username}?start={file_code}"
+    
     # Post the exact original HTML content to Destination Channel B (preserving exact original formatting)
     index_text = title_html
     keyboard = [
-        [InlineKeyboardButton("Get Lecture 📥", callback_data=f"get_{file_code}")]
+        [InlineKeyboardButton("Get Lecture 📥", url=bot_link)]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -599,7 +603,7 @@ async def channel_post_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         logger.error(f"Failed to post index in Destination Channel (ID: {destination_channel}): {e}")
 
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handles callback queries from the 'Get Lecture 📥' inline buttons in the destination channel."""
+    """Handles callback queries from legacy 'Get Lecture 📥' inline buttons in the destination channel."""
     query = update.callback_query
     user_id = query.from_user.id
     data = query.data
@@ -609,15 +613,25 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         logger.info(f"User {user_id} requested lecture via callback code: {file_code}")
         
         bot_username = await get_bot_username(context)
+        bot_username = (bot_username or "bot").lstrip('@').strip()
+        
+        # Check if lecture exists in database
+        lecture = database.get_lecture(file_code)
+        if not lecture:
+            await query.answer(
+                text="❌ Sorry, this lecture could not be found in the database. It might have been deleted or the server restarted.",
+                show_alert=True
+            )
+            return
+
         try:
-            # Answer the callback query by directing the user to the bot's private chat with start parameter.
-            # This hides the link on hover/long-press but opens the bot on click!
+            # Answer callback with deep-link URL redirect
             await query.answer(url=f"https://t.me/{bot_username}?start={file_code}")
             logger.info(f"Successfully redirected user {user_id} to bot chat for file {file_code}")
         except Exception as e:
             logger.error(f"Failed to redirect user {user_id} to bot chat: {e}")
             await query.answer(
-                text="❌ Sorry, this lecture could not be found.",
+                text=f"Please open @{bot_username} and send: /start {file_code}",
                 show_alert=True
             )
 
