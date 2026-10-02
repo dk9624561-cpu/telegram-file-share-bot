@@ -35,9 +35,12 @@ def keep_alive_ping():
     logger.info("Anti-Sleep keep-alive ping thread started.")
     
     space_host = os.environ.get("SPACE_HOST")
+    render_url = os.environ.get("RENDER_EXTERNAL_URL")
     urls_to_ping = ["http://localhost:7860/"]
     if space_host:
         urls_to_ping.append(f"https://{space_host}/")
+    if render_url:
+        urls_to_ping.append(render_url if render_url.endswith("/") else f"{render_url}/")
 
     while True:
         for url in urls_to_ping:
